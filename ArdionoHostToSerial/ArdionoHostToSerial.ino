@@ -7,8 +7,8 @@ long lastRxReceive = 0;
 String deviceType[] = {"UNKNOWN", "POINTER", "MOUSE", "RESERVED", "JOYSTICK", "GAMEPAD", "KEYBOARD", "KEYPAD", "MULTI_AXIS", "SYSTEM"};
 String keyboardstring;
 void setup(void) {
-  Serial.begin(230400);
-  Serial1.begin(1000000, SERIAL_8N1, 16, 17);
+  Serial.begin(115200);
+  Serial2.begin(57600, SERIAL_8N1, 18, 19);
   Serial.println("OK There");
 }
 
@@ -19,7 +19,7 @@ void loop() {
     //Serial.print("h0x");//Only for Debug
     //Serial.print(Serial1.peek(),HEX);//Only for Debug
     //Serial.print(" ");//Only for Debug
-    uartRxBuff[rxPos] = Serial1.read();
+    uartRxBuff[rxPos] = Serial2.read();
     if (rxPos == 0 && uartRxBuff[rxPos] == 0xFE) {
       cmdType = 1;
     } else if (rxPos == 1 && cmdType == 1) {
@@ -55,7 +55,7 @@ void loop() {
 
   if (Serial.available())
   {
-    Serial1.write(Serial.read());
+    Serial2.write(Serial.read());
   }
 }
 
