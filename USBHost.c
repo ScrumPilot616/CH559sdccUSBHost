@@ -391,7 +391,7 @@ unsigned char getDeviceString()
     return hostCtrlTransfer(receiveDataBuffer, 0, RECEIVE_BUFFER_LEN);
 }
 
-char convertStringDescriptor(unsigned char __xdata *usbBuffer, unsigned char __xdata *strBuffer, unsigned short bufferLength, unsigned char index)
+char convertStringDescriptor(unsigned char __xdata *usbBuffer, unsigned char __xdata *strBuffer, unsigned short bufferLength, unsigned char type, unsigned char rootHubIndex)
 {
 	//supports using source as target buffer
 	unsigned char i = 0, len = (usbBuffer[0] - 2) >> 1;
@@ -402,7 +402,7 @@ char convertStringDescriptor(unsigned char __xdata *usbBuffer, unsigned char __x
 		else
 			strBuffer[i] = usbBuffer[2 + (i << 1)];
 	strBuffer[i] = 0;
-	sendProtocolMSG(MSG_TYPE_DEVICE_STRING,(unsigned short)len, index+1, 0x34, 0x56, strBuffer);
+	sendProtocolMSG(MSG_TYPE_DEVICE_STRING,(unsigned short)len, type,0, rootHubIndex,  strBuffer);
 	return 1;
 }
 
@@ -546,15 +546,19 @@ void pollHIDdevice()
 		s = hostTransfer( USB_PID_IN << 4 | HIDdevice[hiddevice].endPoint & 0x7F, HIDdevice[hiddevice].endPoint & 0x80 ? bUH_R_TOG | bUH_T_TOG : 0, 0 );
 		if ( s == ERR_SUCCESS )
    		{
-    		HIDdevice[hiddevice].endPoint ^= 0x80;
-			len = USB_RX_LEN;
-			if ( len )
-			{		
-				LED = !LED;	
-				//DEBUG_OUT("HID %lu, %i data %i : ", HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].endPoint & 0x7F);
-				sendHidPollMSG(MSG_TYPE_DEVICE_POLL,len, HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].endPoint & 0x7F, RxBuffer,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorL,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorH,VendorProductID[HIDdevice[hiddevice].rootHub].idProductL,VendorProductID[HIDdevice[hiddevice].rootHub].idProductH);
-			}
-		}
+    		   HIDdevice[hiddevice].endPoint ^= 0x80;
+		   len = USB_RX_LEN;
+		   if ( len )
+		   {		
+		 	LED = !LED;	
+			//DEBUG_OUT("HID %lu, %i data %i : ", HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].endPoint & 0x7F);
+			sendHidPollMSG(MSG_TYPE_DEVICE_POLL,len, HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].rootHub, RxBuffer,
+			    VendorProductID[HIDdevice[hiddevice].rootHub].idVendorL,
+			    VendorProductID[HIDdevice[hiddevice].rootHub].idVendorH,
+			    VendorProductID[HIDdevice[hiddevice].rootHub].idProductL,
+			    VendorProductID[HIDdevice[hiddevice].rootHub].idProductH);
+		    }
+		  }
 		}
 	}
 }
@@ -742,7 +746,7 @@ unsigned char getHIDDeviceReport(unsigned char CurrentDevive)
 		DEBUG_OUT("0x%02X ", receiveDataBuffer[i]);
 	}
 	DEBUG_OUT("\n");
-	sendProtocolMSG(MSG_TYPE_HID_INFO, len, CurrentDevive, HIDdevice[CurrentDevive].interface, HIDdevice[CurrentDevive].rootHub, receiveDataBuffer);
+	sendProtocolMSG(MSG_TYPE_HID_INFO, len,HIDdevice[CurrentDevive].type, CurrentDevive, HIDdevice[CurrentDevive].rootHub, receiveDataBuffer);
 	parseHIDDeviceReport(receiveDataBuffer, len, CurrentDevive);
 	return (ERR_SUCCESS);
 }
@@ -814,14 +818,14 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 				s = getDeviceString();
 				{
 					DEBUG_OUT_USB_BUFFER(receiveDataBuffer);
-					if(convertStringDescriptor(receiveDataBuffer, receiveDataBuffer, RECEIVE_BUFFER_LEN,rootHubIndex))
+					if(convertStringDescriptor(receiveDataBuffer, receiveDataBuffer, RECEIVE_BUFFER_LEN,0, rootHubIndex))
 					{
 						DEBUG_OUT("Device String: %s\n", receiveDataBuffer);
 					}
 					s = getConfigurationDescriptor();
 					if ( s == ERR_SUCCESS )
 					{
-						sendProtocolMSG(MSG_TYPE_DEVICE_INFO, (receiveDataBuffer[2] + (receiveDataBuffer[3] << 8)), addr, rootHubIndex+1, 0xAA, receiveDataBuffer);
+						sendProtocolMSG(MSG_TYPE_DEVICE_INFO, (receiveDataBuffer[2] + (receiveDataBuffer[3] << 8)), 0,0, rootHubIndex,  receiveDataBuffer);
 						unsigned short i, total;
 						unsigned char __xdata temp[512];
 						PXUSB_ITF_DESCR currentInterface = 0;
@@ -839,7 +843,7 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 						interfaces = ((PXUSB_CFG_DESCR_LONG)receiveDataBuffer)->cfg_descr.bNumInterfaces;
 						DEBUG_OUT("Interface count: %d\n", interfaces);
 
-    					s = setUsbConfig( cfg ); 
+    					        s = setUsbConfig( cfg ); 
 						//parse descriptors
 						total = ((PXUSB_CFG_DESCR)receiveDataBuffer)->wTotalLengthL + (((PXUSB_CFG_DESCR)receiveDataBuffer)->wTotalLengthH << 8);
 						for(i = 0; i < total; i++)
@@ -908,7 +912,7 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 			}
 		}
 		DEBUG_OUT( "Error = %02X\n", s);
-		sendProtocolMSG(MSG_TYPE_ERROR,0, rootHubIndex+1, s, 0xEE, 0);
+		sendProtocolMSG(MSG_TYPE_ERROR,1, 0, 0,rootHubIndex, s);
 		rootHubDevice[rootHubIndex].status = ROOT_DEVICE_FAILED;
 		setUsbSpeed(1);	//TODO define speeds
 	}
@@ -929,7 +933,7 @@ unsigned char checkRootHubConnections()
 					disableRootHubPort(0);	//todo really need to reset register?
 					rootHubDevice[0].status = ROOT_DEVICE_CONNECTED;
 					DEBUG_OUT("Device at root hub %i connected\n", 0);
-					sendProtocolMSG(MSG_TYPE_CONNECTED,0, 0x01, 0x01, 0x01, 0);
+					sendProtocolMSG(MSG_TYPE_CONNECTED,0, 0x00, 0x0, 0x00, 0);
 					s = initializeRootHubConnection(0);
 				}
 			}
@@ -939,7 +943,7 @@ unsigned char checkRootHubConnections()
     			resetHubDevices(0);
 				disableRootHubPort(0);
 				DEBUG_OUT("Device at root hub %i disconnected\n", 0);
-					sendProtocolMSG(MSG_TYPE_DISCONNECTED,0, 0x01, 0x01, 0x01, 0);
+				sendProtocolMSG(MSG_TYPE_DISCONNECTED,0, 0x00, 0x00, 0x00, 0);
 				s = ERR_USB_DISCON;
 			}
 			if(USB_HUB_ST & bUHS_H1_ATTACH)
@@ -950,7 +954,7 @@ unsigned char checkRootHubConnections()
 					disableRootHubPort(1);	//todo really need to reset register?
 					rootHubDevice[1].status = ROOT_DEVICE_CONNECTED;
 					DEBUG_OUT("Device at root hub %i connected\n", 1);
-					sendProtocolMSG(MSG_TYPE_CONNECTED,0, 0x02, 0x02, 0x02, 0);
+					sendProtocolMSG(MSG_TYPE_CONNECTED,0, 0x00, 0x00, 0x01, 0);
 					s = initializeRootHubConnection(1);
 				}
 			}
@@ -960,7 +964,7 @@ unsigned char checkRootHubConnections()
     			resetHubDevices(1);
 				disableRootHubPort(1);
 				DEBUG_OUT("Device at root hub %i disconnected\n", 1);
-					sendProtocolMSG(MSG_TYPE_DISCONNECTED,0, 0x02, 0x02, 0x02, 0);
+				sendProtocolMSG(MSG_TYPE_DISCONNECTED,0, 0x00, 0x00, 0x01, 0);
 				s = ERR_USB_DISCON;
 			}
 	}
